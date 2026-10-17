@@ -1,10 +1,12 @@
 import { PoseLandmarker, FaceDetector } from "./vendor/mediapipe/vision_bundle.mjs";
-import { drawGhost, Fog } from "./ghost.js";
+import { Fog } from "./ghost.js";
+import { drawCharacter, CHARACTERS } from "./characters.js";
 import { Spooky } from "./audio.js";
 import { Room, DEFAULT_ENTRY, floorY } from "./room.js";
 
 // ---------------------------------------------------------------- settings
 const DEFAULTS = {
+  character: "spectre", // "spectre" | "shadow" | "lady" | "girl"
   mode: "turn",        // "turn" = ghost turns its back, "stone" = freezes into a statue, "mirror" = haunted mirror
   mirrorFeed: true,    // mirror mode: show the camera image (off for a screen behind two-way glass)
   windowWatched: "vanish", // window mode, when someone looks: "vanish" | "freeze" | "turn"
@@ -501,7 +503,8 @@ function renderMirror() {
   const flicker = 0.85 + 0.15 * Math.random();
   const lunging = G.phase === "lunge";
   const shake = lunging ? (Math.random() - 0.5) * G.msize * 0.02 : 0;
-  drawGhost(gctx, {
+  drawCharacter(settings.character, gctx, {
+    dark: !settings.mirrorFeed,
     x: G.mx + shake,
     y: G.my + 0.31 * G.msize + 0.01 * G.msize * Math.sin(G.animT * 1.4) + shake,
     size: G.msize,
@@ -755,17 +758,22 @@ function renderWindow() {
     const flicker = 0.9 + 0.1 * Math.random();
     const shake = G.phase === "lunge" ? (Math.random() - 0.5) * size * 0.02 : 0;
 
-    // Its cold light spills onto the room.
+    // Its cold light spills onto the room; a shadow figure darkens it instead.
+    // The girl is solid enough not to glow at all.
+    const a = (preview ? 1 : G.alpha);
+    const shadowy = settings.character === "shadow";
     ctx.save();
-    ctx.globalCompositeOperation = "lighter";
+    ctx.globalCompositeOperation = shadowy ? "source-over" : "lighter";
     const glow = ctx.createRadialGradient(x, cy, 0, x, cy, size * 0.9);
-    glow.addColorStop(0, `rgba(90,140,200,${0.18 * (preview ? 1 : G.alpha) * settings.bright})`);
+    glow.addColorStop(0, shadowy ? `rgba(0,0,0,${0.35 * a})`
+      : `rgba(90,140,200,${(settings.character === "girl" ? 0 : 0.18) * a * settings.bright})`);
     glow.addColorStop(1, "rgba(0,0,0,0)");
     ctx.fillStyle = glow;
     ctx.fillRect(x - size, cy - size, size * 2, size * 2);
     ctx.restore();
 
-    drawGhost(ctx, {
+    drawCharacter(settings.character, ctx, {
+      dark: false,
       x: x + shake,
       y: cy + shake,
       size,
@@ -826,7 +834,8 @@ function render(dt) {
     const bob = (0.012 + 0.01 * G.menace) * size * Math.sin(G.animT * 1.6);
     const flicker = G.stone > 0.5 ? 1 : 0.93 + 0.07 * Math.random();
     const shake = G.phase === "lunge" ? (Math.random() - 0.5) * size * 0.02 : 0;
-    drawGhost(ctx, {
+    drawCharacter(settings.character, ctx, {
+      dark: true,
       x: G.x * W + shake,
       y: headY + 0.32 * size + bob + shake,
       size,
@@ -909,6 +918,9 @@ function bindSettings() {
       if (key === "vol") audio.setVolume(settings.vol);
     });
   };
+  const ch = $("set-character");
+  ch.value = settings.character;
+  ch.addEventListener("change", () => { settings.character = ch.value; save(); });
   const mode = $("set-mode");
   mode.value = settings.mode;
   mode.addEventListener("change", () => setMode(mode.value));
@@ -1002,7 +1014,12 @@ window.addEventListener("keydown", (e) => {
   else if (k === "d") { settings.debug = !settings.debug; $("set-debug").checked = settings.debug; save(); applyDebug(); }
   else if (k === "f") toggleFullscreen();
   else if (k === "r") resetGhost();
-  else if (k === "m") setMode({ turn: "stone", stone: "mirror", mirror: "window", window: "turn" }[settings.mode] || "turn");
+  else if (k === "c") {
+    settings.character = CHARACTERS[(CHARACTERS.indexOf(settings.character) + 1) % CHARACTERS.length];
+    $("set-character").value = settings.character;
+    save();
+    toast(`Character: ${$("set-character").selectedOptions[0].textContent}`, 2000);
+  } else if (k === "m") setMode({ turn: "stone", stone: "mirror", mirror: "window", window: "turn" }[settings.mode] || "turn");
 });
 
 // Double-tap anywhere on the stage opens settings (works on iPhone too).

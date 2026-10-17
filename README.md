@@ -1,18 +1,37 @@
 # The Watcher
 
 A Halloween projection, with haunted mirror and haunted window modes. The screen stays black until a camera sees someone. Then
-a hooded spectre fades in and drifts toward them. It only moves while nobody is
-looking at it. When someone looks, it turns its back (ghost mode) or freezes
-into a stone statue (statue mode). If it gets all the way to you unseen, you get
+a figure (a hooded spectre, a shadow figure, a pale lady, or a long-haired girl)
+fades in and drifts toward them. It only moves while nobody is looking at it.
+When someone looks, it turns its back or freezes into stone, depending on the
+mode. If it gets all the way to you unseen, you get
 a jump scare.
 
 It's a single web page with no build step. Body and face tracking run on the
 device using Google's MediaPipe. That library and its models are included in
 this repo, so the page works without internet once it's loaded.
 
+## Characters
+
+Pick one under **Character** in settings, or press `C` to cycle through them.
+Every character works in every mode.
+
+- **Hooded spectre:** the original glowing ghost.
+- **Shadow figure:** a tall, faceless silhouette with long arms. In a room it
+  looks like a person-shaped hole in the light. On a black screen it shows as a
+  faint cold outline, and its eyes glow red as it gets closer.
+- **Pale lady in white:** a veiled woman in a long, ragged white dress, with
+  hollow eyes behind the veil. She slowly raises her arms toward you.
+- **Long-haired girl:** a small figure in a grubby nightgown with black hair
+  hanging over her face. She moves in jerky stop-motion steps, her head
+  twitches, and when she's close one eye peers through her hair.
+
+The newer characters are drawn soft-focus with a little film grain, so they
+look less like drawings, especially projected on a sheet or behind a window.
+
 ## Haunted mirror mode
 
-Pick **Haunted mirror** under *Character* (or press `M` until it comes up). The
+Pick **Haunted mirror** under *Mode* (or press `M` until it comes up). The
 screen becomes a mirror showing the live camera image, slightly dimmed and cold.
 
 - Look into the mirror for a few seconds and a ghost fades in just behind one of
@@ -40,7 +59,7 @@ Two ways to set it up:
 ## Haunted window mode
 
 For a front window facing the sidewalk. Pick **Haunted window** under
-*Character*. People walking by see a dim, candle-lit room inside the house.
+*Mode*. People walking by see a dim, candle-lit room inside the house.
 While they aren't looking at the window, a ghost drifts out of a dark doorway at
 the back of the room. It follows them sideways as they walk and gets bigger as
 it comes up to the glass. When they look at the window, it disappears and they
@@ -167,7 +186,8 @@ Settings are saved in the browser.
 | `S` or double-tap | Settings panel |
 | `D` | Debug view (camera feed + tracking) |
 | `F` | Fullscreen |
-| `M` | Cycle ghost → statue → haunted mirror → haunted window |
+| `C` | Next character |
+| `M` | Next mode: black screen (turns away) → black screen (statue) → haunted mirror → haunted window |
 | `R` | Reset the ghost |
 
 ### Projection tips
@@ -186,6 +206,7 @@ Settings are saved in the browser.
 - `index.html`, `style.css`: the page and settings UI
 - `app.js`: camera, detection, and ghost behavior
 - `ghost.js`: drawing the spectre and fog
+- `characters.js`: the shadow figure, pale lady and long-haired girl
 - `room.js`: the candle-lit room for the haunted window
 - `audio.js`: synthesized sounds
 - `vendor/mediapipe/`: MediaPipe Tasks Vision 1.1.1 (Apache-2.0)

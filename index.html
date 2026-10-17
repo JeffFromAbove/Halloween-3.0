@@ -23,7 +23,7 @@
         Or, in the haunted mirror, it waits just behind your shoulder.</p>
       <button id="startBtn">Begin</button>
       <p id="introMsg" class="msg"></p>
-      <p class="hint">Double-tap (or press <kbd>S</kbd>) for settings &middot; <kbd>M</kbd> switches character &middot; <kbd>D</kbd> for debug view &middot; <kbd>F</kbd> fullscreen</p>
+      <p class="hint">Double-tap (or press <kbd>S</kbd>) for settings &middot; <kbd>C</kbd> character &middot; <kbd>M</kbd> mode &middot; <kbd>D</kbd> for debug view &middot; <kbd>F</kbd> fullscreen</p>
     </div>
   </div>
 
@@ -35,9 +35,18 @@
     </div>
 
     <label>Character
+      <select id="set-character">
+        <option value="spectre">Hooded spectre</option>
+        <option value="shadow">Shadow figure</option>
+        <option value="lady">Pale lady in white</option>
+        <option value="girl">Long-haired girl</option>
+      </select>
+    </label>
+
+    <label>Mode
       <select id="set-mode">
-        <option value="turn">Ghost &mdash; turns its back when watched</option>
-        <option value="stone">Statue &mdash; freezes to stone when watched</option>
+        <option value="turn">Black screen &mdash; turns its back when watched</option>
+        <option value="stone">Black screen &mdash; freezes to stone when watched</option>
         <option value="mirror">Haunted mirror &mdash; something behind you, only while you look</option>
         <option value="window">Haunted window &mdash; a room with something that follows passers-by</option>
       </select>
