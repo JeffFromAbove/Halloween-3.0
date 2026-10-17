@@ -1,7 +1,7 @@
 import { PoseLandmarker, FaceDetector } from "./vendor/mediapipe/vision_bundle.mjs";
 import { drawGhost, Fog } from "./ghost.js";
 import { Spooky } from "./audio.js";
-import { Room, DOOR, floorY } from "./room.js";
+import { Room, DEFAULT_ENTRY, floorY } from "./room.js";
 
 // ---------------------------------------------------------------- settings
 const DEFAULTS = {
@@ -11,6 +11,7 @@ const DEFAULTS = {
   windowFlip: true,    // window mode: flip the picture for rear projection (viewers outside)
   windowCreep: 8,      // window mode: seconds to come from the doorway to the glass
   roomBright: 0.8,
+  photoEntry: { x: 0.5, y: 0.7, size: 0.3 }, // where the ghost appears in your room photo
   mirror: true,
   jumpscare: true,
   sound: true,
@@ -532,6 +533,108 @@ function renderMirror() {
 // follows them toward the glass. When they look, it's gone (or freezes, or
 // turns away) and it's just a room again.
 const room = new Room();
+let previewT = 0; // seconds left showing where the ghost will appear
+
+// Where the ghost first appears: chosen by tapping on a room photo, or the
+// painted room's doorway.
+const entry = () => (room.photo ? settings.photoEntry : DEFAULT_ENTRY);
+
+// The room photo is kept in the browser (IndexedDB) so it survives reloads.
+function idb() {
+  return new Promise((res, rej) => {
+    const r = indexedDB.open("watcher", 1);
+    r.onupgradeneeded = () => r.result.createObjectStore("files");
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+}
+async function storeFile(key, val) {
+  const db = await idb();
+  return new Promise((res, rej) => {
+    const tx = db.transaction("files", "readwrite");
+    if (val == null) tx.objectStore("files").delete(key);
+    else tx.objectStore("files").put(val, key);
+    tx.oncomplete = res;
+    tx.onerror = () => rej(tx.error);
+  });
+}
+async function loadFile(key) {
+  const db = await idb();
+  return new Promise((res, rej) => {
+    const r = db.transaction("files").objectStore("files").get(key);
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+}
+
+function blobToImage(blob) {
+  return new Promise((res, rej) => {
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    img.onload = () => { URL.revokeObjectURL(url); res(img); };
+    img.onerror = () => { URL.revokeObjectURL(url); rej(new Error("unreadable image")); };
+    img.src = url;
+  });
+}
+
+// Shrink to at most 1920px, save, and show it.
+function useRoomImage(src) {
+  const sw = src.naturalWidth || src.videoWidth || src.width, sh = src.naturalHeight || src.videoHeight || src.height;
+  const k = Math.min(1, 1920 / Math.max(sw, sh));
+  const c = document.createElement("canvas");
+  c.width = Math.round(sw * k);
+  c.height = Math.round(sh * k);
+  c.getContext("2d").drawImage(src, 0, 0, c.width, c.height);
+  room.setPhoto(c);
+  // Save in the background; no need to wait for it.
+  c.toBlob((blob) => storeFile("roomPhoto", blob).catch((e) => console.warn("Could not save the room photo", e)), "image/jpeg", 0.9);
+}
+
+async function restoreRoomPhoto() {
+  try {
+    const blob = await loadFile("roomPhoto");
+    if (blob) room.setPhoto(await blobToImage(blob));
+  } catch (e) {
+    console.warn("No saved room photo", e);
+  }
+}
+
+let toastTimer;
+function toast(msg, ms = 4000) {
+  const t = $("toast");
+  t.textContent = msg;
+  t.classList.remove("hidden");
+  clearTimeout(toastTimer);
+  if (ms) toastTimer = setTimeout(() => t.classList.add("hidden"), ms);
+}
+
+async function captureRoomWithCamera() {
+  togglePanel(false);
+  for (let n = 5; n > 0; n--) {
+    toast(`Point the camera into the room… ${n}`, 0);
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  await useRoomImage(video);
+  toast("Room captured. Now tap where the ghost should appear.", 5000);
+  startPickingEntry();
+}
+
+let pickingEntry = false;
+function startPickingEntry() {
+  if (settings.mode !== "window") setMode("window");
+  togglePanel(false);
+  pickingEntry = true;
+  toast("Tap the spot on the floor where the ghost should first appear (a doorway or the far end of a hall).", 0);
+}
+function pickEntry(e) {
+  pickingEntry = false;
+  let x = e.clientX / W;
+  if (settings.windowFlip) x = 1 - x; // the picture is drawn flipped for people outside
+  settings.photoEntry = { ...settings.photoEntry, x, y: e.clientY / H };
+  save();
+  previewT = 4;
+  toast("Here it comes from. Adjust its size under Settings → Haunted window.", 4000);
+}
 
 function updateWindow(dt) {
   const present = people.length > 0;
@@ -556,7 +659,7 @@ function updateWindow(dt) {
     if (here && presentFor > 0.4 && !(how === "vanish" && observed)) {
       G.phase = "active";
       G.dist = 0;
-      G.x = (DOOR.l + DOOR.r) / 2;
+      G.x = entry().x;
       G.turn = how === "turn" && observed ? Math.PI : 0;
     }
   } else if (G.phase === "active") {
@@ -618,6 +721,7 @@ function updateWindow(dt) {
   if (!still) G.look = approach(G.look, clamp((targetX - G.x) * 5, -1, 1), 4, dt);
   G.flash = approach(G.flash, 0, 5, dt);
 
+  previewT = Math.max(0, previewT - dt);
   const shown = G.phase === "active" || G.phase === "lunge" ? G.alpha : 0;
   audio.update(shown, G.phase === "lunge" || (G.phase === "active" && !observed), G.dist);
 }
@@ -628,15 +732,19 @@ function renderWindow() {
     ctx.translate(W, 0);
     ctx.scale(-1, 1);
   }
-  room.build(W, H);
-  room.draw(ctx, performance.now() / 1000, settings.roomBright);
-
   const visible = G.phase === "active" || G.phase === "lunge";
-  if (visible && G.alpha > 0.005) {
-    const e = ease(G.dist);
-    let size = lerp(0.3, 1.5, e) * H;
-    let feet = floorY(e, H);
-    let x = lerp(((DOOR.l + DOOR.r) / 2) * W, G.x * W, lerp(0.25, 1, e));
+  // The lights dim as it gets closer.
+  const dim = visible ? 1 - 0.35 * G.menace * G.alpha : 1;
+  room.build(W, H);
+  room.draw(ctx, performance.now() / 1000, settings.roomBright * dim);
+
+  const en = entry();
+  const preview = previewT > 0; // showing where it will appear, whatever the ghost is doing
+  if (preview || (visible && G.alpha > 0.005)) {
+    const e = preview ? 0 : ease(G.dist);
+    let size = lerp(en.size, 1.5, e) * H;
+    let feet = floorY(e, H, en.y);
+    let x = lerp(en.x * W, (preview ? en.x : G.x) * W, lerp(0.25, 1, e));
     if (G.phase === "lunge") {
       const k = ease(clamp(G.lungeT / 0.4));
       size *= lerp(1, 2, k);
@@ -651,7 +759,7 @@ function renderWindow() {
     ctx.save();
     ctx.globalCompositeOperation = "lighter";
     const glow = ctx.createRadialGradient(x, cy, 0, x, cy, size * 0.9);
-    glow.addColorStop(0, `rgba(90,140,200,${0.18 * G.alpha * settings.bright})`);
+    glow.addColorStop(0, `rgba(90,140,200,${0.18 * (preview ? 1 : G.alpha) * settings.bright})`);
     glow.addColorStop(1, "rgba(0,0,0,0)");
     ctx.fillStyle = glow;
     ctx.fillRect(x - size, cy - size, size * 2, size * 2);
@@ -664,7 +772,7 @@ function renderWindow() {
       t: G.animT,
       turn: G.turn,
       stone: 0,
-      alpha: G.alpha * flicker,
+      alpha: (preview ? 1 : G.alpha) * flicker,
       // The picture is flipped for outside viewers, so flip where it looks too.
       look: settings.windowFlip ? -G.look : G.look,
       menace: G.menace,
@@ -817,6 +925,37 @@ function bindSettings() {
   bindRange("set-creep", "creep", "v-creep", (v) => `${v}s`);
   bindRange("set-windowcreep", "windowCreep", "v-windowcreep", (v) => `${v}s`);
   bindRange("set-roombright", "roomBright", "v-roombright", (v) => `${Math.round(v * 100)}%`);
+  const es = $("set-entrysize"), esv = $("v-entrysize");
+  es.value = settings.photoEntry.size;
+  esv.textContent = `${Math.round(settings.photoEntry.size * 100)}%`;
+  es.addEventListener("input", () => {
+    settings.photoEntry = { ...settings.photoEntry, size: parseFloat(es.value) };
+    esv.textContent = `${Math.round(settings.photoEntry.size * 100)}%`;
+    previewT = 2;
+    save();
+  });
+  $("photoBtn").addEventListener("click", () => $("photoFile").click());
+  $("photoFile").addEventListener("change", async (e) => {
+    const f = e.target.files?.[0];
+    e.target.value = "";
+    if (!f) return;
+    try {
+      await useRoomImage(await blobToImage(f));
+      startPickingEntry();
+    } catch {
+      toast("Couldn't read that photo. Save it as a JPEG (on iPhone: Settings → Camera → Formats → Most Compatible) and try again.", 8000);
+    }
+  });
+  $("captureBtn").addEventListener("click", captureRoomWithCamera);
+  $("entryBtn").addEventListener("click", () => {
+    if (!room.photo) return toast("Add a photo of your room first. The painted room already has its doorway.", 5000);
+    startPickingEntry();
+  });
+  $("paintedBtn").addEventListener("click", async () => {
+    room.setPhoto(null);
+    try { await storeFile("roomPhoto", null); } catch {}
+    toast("Back to the painted room.", 3000);
+  });
   bindRange("set-sens", "sens", "v-sens", (v) => v.toFixed(2));
   bindRange("set-facing", "facing", "v-facing", (v) => v.toFixed(2));
   bindRange("set-vol", "vol", "v-vol", (v) => `${Math.round(v * 100)}%`);
@@ -869,6 +1008,7 @@ window.addEventListener("keydown", (e) => {
 // Double-tap anywhere on the stage opens settings (works on iPhone too).
 let lastTap = 0;
 stage.addEventListener("pointerup", (e) => {
+  if (pickingEntry) return pickEntry(e);
   const now = performance.now();
   if (now - lastTap < 350) { togglePanel(); lastTap = 0; } else lastTap = now;
   audio.resume();
@@ -896,6 +1036,7 @@ window.watcher = { G, settings, get people() { return people; } }; // for poking
 bindSettings();
 applyDebug();
 resize();
+restoreRoomPhoto();
 
 $("startBtn").addEventListener("click", async () => {
   const btn = $("startBtn"), msg = $("introMsg");

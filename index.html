@@ -65,6 +65,17 @@
       <label>Room brightness: <span id="v-roombright"></span>
         <input type="range" id="set-roombright" min="0.2" max="1" step="0.05">
       </label>
+      <p class="sub">Your own room (optional)</p>
+      <div class="buttons">
+        <button id="photoBtn">Use a photo&hellip;</button>
+        <button id="captureBtn">Take one with the camera</button>
+        <button id="entryBtn">Set where it appears</button>
+        <button id="paintedBtn">Painted room</button>
+      </div>
+      <input type="file" id="photoFile" accept="image/*" hidden>
+      <label>Ghost size where it appears: <span id="v-entrysize"></span>
+        <input type="range" id="set-entrysize" min="0.08" max="0.8" step="0.01">
+      </label>
     </fieldset>
 
     <label class="row"><input type="checkbox" id="set-jumpscare"> Jump scare when it reaches you</label>
@@ -93,6 +104,8 @@
       <button id="resetBtn">Reset ghost</button>
     </div>
   </div>
+
+  <div id="toast" class="hidden"></div>
 
   <div id="debug" class="hidden">
     <canvas id="debugCanvas"></canvas>

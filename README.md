@@ -76,6 +76,40 @@ make it freeze or turn its back instead.)
 If the ghost moves away from people instead of following them, toggle **Flip
 picture for rear projection**.
 
+### Using a photo of your real room
+
+Instead of the painted room, you can project a photo of your actual room. The
+app darkens it and gives it a cold, night-time look.
+
+**Taking the photo**
+
+- Take it at night, with the lights set how they'll be on Halloween (one or two
+  lamps on, overhead lights off). Do this before the screen and projector go up.
+- Stand right at the window with your back to the glass and the phone at chest
+  height, pointing into the room. This is the view someone on the sidewalk would
+  have.
+- Hold the phone sideways (landscape). Use the normal 1× lens, not the
+  ultra-wide, which bends straight lines. Frame it to roughly match the window's
+  shape. The app crops the edges to fill the screen.
+- A doorway, staircase, or hallway in the shot gives the ghost somewhere to come
+  from.
+- If the laptop can't open the photo, set the iPhone to *Settings → Camera →
+  Formats → Most Compatible* so it saves JPEGs, then retake it. Or AirDrop it to
+  a Mac, which converts it.
+
+**Loading it**
+
+1. In settings, under *Haunted window*, tap **Use a photo…** and pick the image.
+   Or tap **Take one with the camera**: you get a 5-second countdown to point
+   the webcam into the room.
+2. Tap the spot on the floor where the ghost should first appear, such as the
+   bottom of a doorway. A preview ghost shows up there.
+3. Adjust **Ghost size where it appears** until it looks the right size for that
+   spot. A ghost in a far doorway should be about as tall as the doorway.
+
+The photo is saved in that browser, so it's still there after a restart. To go
+back to the painted room, tap **Painted room**.
+
 For both front windows, run two laptops (or a laptop plus a mini PC), each with
 its own projector and webcam.
 

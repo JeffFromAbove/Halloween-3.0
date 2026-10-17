@@ -1,10 +1,12 @@
-// A dim, candle-lit room seen through a window, in one-point perspective.
-// The static parts are painted once to an offscreen canvas; the candle light
-// flickers on top every frame.
+// The room seen through the window: either a photo of the real room, darkened
+// to look like night, or a painted candle-lit room in one-point perspective.
+// The static parts are painted once to an offscreen canvas.
 
 const BACK = { l: 0.24, r: 0.76, t: 0.16, b: 0.66 }; // back wall, as fractions of the screen
 export const DOOR = { l: 0.36, r: 0.5, t: 0.27 };   // doorway in the back wall (bottom = BACK.b)
 const CANDLE = { x: 0.82, y: 0.7 };
+// Where the ghost first appears in the painted room (x, floor y, height as fractions).
+export const DEFAULT_ENTRY = { x: (DOOR.l + DOOR.r) / 2, y: BACK.b, size: 0.3 };
 
 function quad(c, pts, fill) {
   c.beginPath();
@@ -17,8 +19,15 @@ function quad(c, pts, fill) {
 export class Room {
   constructor() {
     this.canvas = document.createElement("canvas");
+    this.photo = null;
     this.w = 0;
     this.h = 0;
+  }
+
+  // Use a photo of the real room (an image or canvas), or null for the painted one.
+  setPhoto(img) {
+    this.photo = img;
+    this.w = 0; // repaint
   }
 
   // Paint the static room at the given pixel size.
@@ -30,6 +39,7 @@ export class Room {
     cv.width = w;
     cv.height = h;
     const c = cv.getContext("2d");
+    if (this.photo) return this.buildPhoto(c, w, h);
     const X = (f) => f * w, Y = (f) => f * h;
     const bl = X(BACK.l), br = X(BACK.r), bt = Y(BACK.t), bb = Y(BACK.b);
 
@@ -152,10 +162,35 @@ export class Room {
     }
   }
 
-  // Draw the room with flickering candle light. brightness 0..1.
+  // Fill the screen with the photo (cropping the edges if needed) and grade it
+  // to look like a room lit by one dim lamp at night.
+  buildPhoto(c, w, h) {
+    const p = this.photo;
+    const pw = p.naturalWidth || p.width, ph = p.naturalHeight || p.height;
+    const k = Math.max(w / pw, h / ph);
+    c.drawImage(p, (w - pw * k) / 2, (h - ph * k) / 2, pw * k, ph * k);
+    c.globalCompositeOperation = "multiply";
+    c.fillStyle = "rgb(120,125,150)"; // darker and colder
+    c.fillRect(0, 0, w, h);
+    c.globalCompositeOperation = "source-over";
+    const v = c.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.2, w / 2, h / 2, Math.max(w, h) * 0.7);
+    v.addColorStop(0, "rgba(0,0,0,0.1)");
+    v.addColorStop(1, "rgba(0,0,0,0.75)");
+    c.fillStyle = v;
+    c.fillRect(0, 0, w, h);
+  }
+
+  // Draw the room. brightness 0..1 (the caller dims it when the ghost is near).
   draw(ctx, t, brightness) {
     const w = this.w, h = this.h;
     ctx.save();
+    if (this.photo) {
+      // A lamp that isn't quite steady.
+      ctx.globalAlpha = brightness * (0.97 + 0.03 * Math.sin(t * 7.3) * Math.sin(t * 3.1));
+      ctx.drawImage(this.canvas, 0, 0, w, h);
+      ctx.restore();
+      return;
+    }
     ctx.globalAlpha = brightness;
     ctx.drawImage(this.canvas, 0, 0, w, h);
     ctx.restore();
@@ -186,7 +221,7 @@ export class Room {
   }
 }
 
-// Where the floor is at a given depth: 0 = in the doorway, 1 = against the glass.
-export function floorY(depth, h) {
-  return (BACK.b + (1.55 - BACK.b) * depth) * h;
+// Where the floor is at a given depth: 0 = where it appears (startY), 1 = against the glass.
+export function floorY(depth, h, startY) {
+  return (startY + (1.55 - startY) * depth) * h;
 }
