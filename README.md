@@ -1,6 +1,6 @@
 # The Watcher
 
-A Halloween projection (plus a haunted mirror). The screen stays black until a camera sees someone. Then
+A Halloween projection, with haunted mirror and haunted window modes. The screen stays black until a camera sees someone. Then
 a hooded spectre fades in and drifts toward them. It only moves while nobody is
 looking at it. When someone looks, it turns its back (ghost mode) or freezes
 into a stone statue (statue mode). If it gets all the way to you unseen, you get
@@ -36,6 +36,48 @@ Two ways to set it up:
   mirror's top edge. The ghost's position is worked out from the camera's view,
   so it lines up best for someone standing about 1–2 m back. Expect it to be
   slightly off.
+
+## Haunted window mode
+
+For a front window facing the sidewalk. Pick **Haunted window** under
+*Character*. People walking by see a dim, candle-lit room inside the house.
+While they aren't looking at the window, a ghost drifts out of a dark doorway at
+the back of the room. It follows them sideways as they walk and gets bigger as
+it comes up to the glass. When they look at the window, it disappears and they
+see an ordinary room. (Under *Haunted window → When someone looks in*, you can
+make it freeze or turn its back instead.)
+
+### Setting it up
+
+1. **Screen on the glass.** Cover the inside of the window with rear-projection
+   film, frosted window film, or a white shower curtain or sheer fabric stretched
+   tight across the frame. A light-coloured roller shade can work if light passes
+   through it. Thinner material gives a brighter picture outside.
+2. **Projector inside, behind the screen,** pointing at the window. Stand it
+   back far enough to fill the window. Keep **Flip picture for rear projection**
+   on. If your projector has its own "rear" setting, use that instead and turn
+   the flip off. The window grilles end up in front of the picture, which
+   makes it look like a real window.
+3. **Webcam looking out at the sidewalk.** Keep it outside the projected area,
+   for example in a corner pane with no film, or on the porch. Press the lens
+   right against the glass and surround it with black tape or cloth, so the
+   camera doesn't see the projector's glow reflected in the window.
+4. **Light the sidewalk.** The tracker needs to see people. A porch light or
+   streetlight is usually enough. Without one, people in the dark won't be
+   detected.
+5. Turn on **Debug view** and walk past. Check that you get a box on your head.
+   It should turn green when you look at the window and red when you look ahead.
+   People on a sidewalk are far from the camera. If looks aren't detected, lower
+   **Face detection threshold** and turn on **Also use body pose to guess
+   "looking"**. A 1080p webcam helps a lot.
+6. Set **Seconds to reach the glass** to match how long people are in view.
+   Someone walking past is usually in view for 5–10 seconds, so 6–8 works well.
+
+If the ghost moves away from people instead of following them, toggle **Flip
+picture for rear projection**.
+
+For both front windows, run two laptops (or a laptop plus a mini PC), each with
+its own projector and webcam.
 
 ## How it decides you're "looking"
 
@@ -91,7 +133,7 @@ Settings are saved in the browser.
 | `S` or double-tap | Settings panel |
 | `D` | Debug view (camera feed + tracking) |
 | `F` | Fullscreen |
-| `M` | Cycle ghost → statue → haunted mirror |
+| `M` | Cycle ghost → statue → haunted mirror → haunted window |
 | `R` | Reset the ghost |
 
 ### Projection tips
@@ -110,6 +152,7 @@ Settings are saved in the browser.
 - `index.html`, `style.css`: the page and settings UI
 - `app.js`: camera, detection, and ghost behavior
 - `ghost.js`: drawing the spectre and fog
+- `room.js`: the candle-lit room for the haunted window
 - `audio.js`: synthesized sounds
 - `vendor/mediapipe/`: MediaPipe Tasks Vision 1.1.1 (Apache-2.0)
 - `models/`: pose landmarker (lite) and BlazeFace short-range models

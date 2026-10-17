@@ -39,6 +39,7 @@
         <option value="turn">Ghost &mdash; turns its back when watched</option>
         <option value="stone">Statue &mdash; freezes to stone when watched</option>
         <option value="mirror">Haunted mirror &mdash; something behind you, only while you look</option>
+        <option value="window">Haunted window &mdash; a room with something that follows passers-by</option>
       </select>
     </label>
 
@@ -48,6 +49,24 @@
 
     <label class="row"><input type="checkbox" id="set-mirror"> Mirror (ghost on the same side as the person)</label>
     <label class="row"><input type="checkbox" id="set-mirrorfeed"> Haunted mirror: show the camera image (turn off for a screen behind two-way mirror glass)</label>
+    <fieldset>
+      <legend>Haunted window</legend>
+      <label>When someone looks in
+        <select id="set-windowwatched">
+          <option value="vanish">It vanishes &mdash; just an empty room</option>
+          <option value="freeze">It freezes dead still</option>
+          <option value="turn">It turns its back</option>
+        </select>
+      </label>
+      <label class="row"><input type="checkbox" id="set-windowflip"> Flip picture for rear projection (projector inside, people outside)</label>
+      <label>Seconds to reach the glass: <span id="v-windowcreep"></span>
+        <input type="range" id="set-windowcreep" min="3" max="30" step="1">
+      </label>
+      <label>Room brightness: <span id="v-roombright"></span>
+        <input type="range" id="set-roombright" min="0.2" max="1" step="0.05">
+      </label>
+    </fieldset>
+
     <label class="row"><input type="checkbox" id="set-jumpscare"> Jump scare when it reaches you</label>
     <label class="row"><input type="checkbox" id="set-sound"> Sound</label>
     <label class="row"><input type="checkbox" id="set-posefallback"> Also use body pose to guess "looking" (helps far away)</label>

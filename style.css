@@ -102,6 +102,8 @@ button:hover { background: #1b2b45; }
 .panel label.row { display: flex; gap: 8px; align-items: center; }
 .panel select, .panel input[type=range] { width: 100%; margin-top: 6px; }
 .panel select { font: inherit; background: #101828; color: #e8f0ff; border: 1px solid #2f4466; border-radius: 6px; padding: 6px; }
+.panel fieldset { border: 1px solid #24324a; border-radius: 8px; margin: 12px 0; padding: 4px 10px; }
+.panel legend { color: #9fb0c8; padding: 0 4px; }
 .panel .buttons { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
 
 .hidden { display: none !important; }

@@ -1,11 +1,16 @@
 import { PoseLandmarker, FaceDetector } from "./vendor/mediapipe/vision_bundle.mjs";
 import { drawGhost, Fog } from "./ghost.js";
 import { Spooky } from "./audio.js";
+import { Room, DOOR, floorY } from "./room.js";
 
 // ---------------------------------------------------------------- settings
 const DEFAULTS = {
   mode: "turn",        // "turn" = ghost turns its back, "stone" = freezes into a statue, "mirror" = haunted mirror
   mirrorFeed: true,    // mirror mode: show the camera image (off for a screen behind two-way glass)
+  windowWatched: "vanish", // window mode, when someone looks: "vanish" | "freeze" | "turn"
+  windowFlip: true,    // window mode: flip the picture for rear projection (viewers outside)
+  windowCreep: 8,      // window mode: seconds to come from the doorway to the glass
+  roomBright: 0.8,
   mirror: true,
   jumpscare: true,
   sound: true,
@@ -194,7 +199,8 @@ function detect(now) {
   }
   const frameFaces = (faces.detect(video).detections || []).filter(goodFace).map(faceInfo);
 
-  const toScreenX = (x) => (settings.mirror || settings.mode === "mirror" ? 1 - x : x);
+  // Mirror and window modes are seen from the camera's side, so always flip.
+  const toScreenX = (x) => (settings.mirror || settings.mode === "mirror" || settings.mode === "window" ? 1 - x : x);
   const used = new Set();
   const found = [];
 
@@ -265,6 +271,7 @@ const G = {
   menace: 0, mouth: 0, look: 0, lungeT: 0, coolT: 0, flash: 0,
   // mirror mode: where the ghost stands (screen px), which shoulder, how long you've looked
   mx: 0, my: 0, msize: 0, side: 1, lookFor: 0, delay: 3,
+  unseenFor: 0, // window mode: how long since anyone looked
 };
 let presentFor = 0, absentFor = 99, watched = 0, observed = false, targetX = 0.5;
 const fog = new Fog();
@@ -277,6 +284,7 @@ function resetGhost() {
 
 function update(dt) {
   if (settings.mode === "mirror") return updateMirror(dt);
+  if (settings.mode === "window") return updateWindow(dt);
   const present = people.length > 0;
   if (present) { presentFor += dt; absentFor = 0; } else { absentFor += dt; presentFor = 0; }
   const here = presentFor > 0.4 || (absentFor < 2.5 && G.phase !== "hidden");
@@ -518,6 +526,161 @@ function renderMirror() {
   ctx.drawImage(ghostCanvas, 0, 0, W, H);
 }
 
+// ---------------------------------------------------------------- haunted window
+// Projected on the inside of a front window. Passers-by see a dim room. While
+// they aren't looking, something comes out of the doorway at the back and
+// follows them toward the glass. When they look, it's gone (or freezes, or
+// turns away) and it's just a room again.
+const room = new Room();
+
+function updateWindow(dt) {
+  const present = people.length > 0;
+  if (present) { presentFor += dt; absentFor = 0; } else { absentFor += dt; presentFor = 0; }
+  const here = presentFor > 0.4 || (absentFor < 2.5 && G.phase !== "hidden");
+
+  const anyLooking = people.some((p) => p.looking);
+  watched = anyLooking ? approach(watched, 1, 14, dt) : approach(watched, 0, 3, dt);
+  const wasObserved = observed;
+  observed = observed ? watched > 0.35 : watched > 0.6;
+  G.unseenFor = observed ? 0 : G.unseenFor + dt;
+  G.stone = 0;
+
+  if (present) {
+    const main = people.reduce((a, b) => (b.size > a.size ? b : a));
+    targetX = approach(targetX, main.x, 6, dt);
+  }
+
+  const how = settings.windowWatched;
+  if (G.phase === "hidden") {
+    G.alpha = approach(G.alpha, 0, 3, dt);
+    if (here && presentFor > 0.4 && !(how === "vanish" && observed)) {
+      G.phase = "active";
+      G.dist = 0;
+      G.x = (DOOR.l + DOOR.r) / 2;
+      G.turn = how === "turn" && observed ? Math.PI : 0;
+    }
+  } else if (G.phase === "active") {
+    if (!here) {
+      // They've gone: drift back into the dark doorway.
+      G.turn = approach(G.turn, Math.PI, 3, dt);
+      G.dist = Math.max(0, G.dist - dt / 3);
+      if (G.dist < 0.15) G.alpha = approach(G.alpha, 0, 2, dt);
+      if (G.alpha < 0.02) resetGhost();
+    } else {
+      if (how === "vanish") {
+        // Gone the instant you look; back a moment after you look away.
+        G.alpha = observed ? approach(G.alpha, 0, 40, dt) : G.unseenFor > 0.5 ? approach(G.alpha, 1, 2.5, dt) : G.alpha;
+        G.turn = 0;
+      } else {
+        G.alpha = approach(G.alpha, 1, 1.5, dt);
+        if (how === "turn") {
+          const step = 7 * dt;
+          G.turn += clamp((observed ? Math.PI : 0) - G.turn, -step, step);
+          if (observed !== wasObserved) audio.whoosh();
+        } else {
+          G.turn = 0;
+        }
+      }
+      const frozen = observed || (how === "turn" && G.turn > 0.25) || (how === "vanish" && G.alpha < 0.5);
+      if (!frozen) {
+        G.dist = clamp(G.dist + dt / settings.windowCreep);
+        const maxV = (0.2 + 0.6 * G.dist) * dt;
+        G.x += clamp(targetX - G.x, -maxV, maxV);
+        G.menace = approach(G.menace, ease(G.dist), 2, dt);
+        G.mouth = approach(G.mouth, G.dist > 0.8 ? (G.dist - 0.8) * 2 : 0, 3, dt);
+      }
+      if (G.dist >= 1 && !frozen && settings.jumpscare) {
+        G.phase = "lunge";
+        G.lungeT = 0;
+        audio.scream();
+      }
+    }
+  } else if (G.phase === "lunge") {
+    G.lungeT += dt;
+    G.alpha = 1;
+    G.turn = 0;
+    G.mouth = approach(G.mouth, 1, 12, dt);
+    G.menace = 1;
+    if (G.lungeT > 1.0) {
+      G.phase = "cooldown";
+      G.coolT = 0;
+      G.flash = 1;
+      G.alpha = 0;
+    }
+  } else if (G.phase === "cooldown") {
+    G.coolT += dt;
+    if (G.coolT > 6) resetGhost();
+  }
+
+  // "Freeze" stops it dead, cloth and all.
+  const still = how === "freeze" && observed && G.phase === "active";
+  G.animT += dt * (G.phase === "lunge" ? 3 : still ? 0 : 1);
+  if (!still) G.look = approach(G.look, clamp((targetX - G.x) * 5, -1, 1), 4, dt);
+  G.flash = approach(G.flash, 0, 5, dt);
+
+  const shown = G.phase === "active" || G.phase === "lunge" ? G.alpha : 0;
+  audio.update(shown, G.phase === "lunge" || (G.phase === "active" && !observed), G.dist);
+}
+
+function renderWindow() {
+  ctx.save();
+  if (settings.windowFlip) {
+    ctx.translate(W, 0);
+    ctx.scale(-1, 1);
+  }
+  room.build(W, H);
+  room.draw(ctx, performance.now() / 1000, settings.roomBright);
+
+  const visible = G.phase === "active" || G.phase === "lunge";
+  if (visible && G.alpha > 0.005) {
+    const e = ease(G.dist);
+    let size = lerp(0.3, 1.5, e) * H;
+    let feet = floorY(e, H);
+    let x = lerp(((DOOR.l + DOOR.r) / 2) * W, G.x * W, lerp(0.25, 1, e));
+    if (G.phase === "lunge") {
+      const k = ease(clamp(G.lungeT / 0.4));
+      size *= lerp(1, 2, k);
+      feet += k * size * 0.25;
+      x = lerp(x, W / 2, k * 0.5);
+    }
+    const cy = feet - 0.45 * size + 0.012 * size * Math.sin(G.animT * 1.6);
+    const flicker = 0.9 + 0.1 * Math.random();
+    const shake = G.phase === "lunge" ? (Math.random() - 0.5) * size * 0.02 : 0;
+
+    // Its cold light spills onto the room.
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    const glow = ctx.createRadialGradient(x, cy, 0, x, cy, size * 0.9);
+    glow.addColorStop(0, `rgba(90,140,200,${0.18 * G.alpha * settings.bright})`);
+    glow.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = glow;
+    ctx.fillRect(x - size, cy - size, size * 2, size * 2);
+    ctx.restore();
+
+    drawGhost(ctx, {
+      x: x + shake,
+      y: cy + shake,
+      size,
+      t: G.animT,
+      turn: G.turn,
+      stone: 0,
+      alpha: G.alpha * flicker,
+      // The picture is flipped for outside viewers, so flip where it looks too.
+      look: settings.windowFlip ? -G.look : G.look,
+      menace: G.menace,
+      mouth: G.mouth,
+      sway: 0.6 + 0.4 * G.menace,
+      brightness: settings.bright,
+    });
+  }
+  ctx.restore();
+
+  if (G.flash > 0.01) {
+    ctx.fillStyle = `rgba(255,255,255,${G.flash * 0.8})`;
+    ctx.fillRect(0, 0, W, H);
+  }
+}
+
 // ---------------------------------------------------------------- render
 let W = 0, H = 0, DPR = 1;
 function resize() {
@@ -533,6 +696,8 @@ function render(dt) {
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   if (settings.mode === "mirror") {
     renderMirror();
+  } else if (settings.mode === "window") {
+    return renderWindow();
   } else {
     ctx.fillStyle = "#000";
     ctx.fillRect(0, 0, W, H);
@@ -582,7 +747,7 @@ function renderDebug(fps) {
   if (dbgCanvas.width !== dw * 2) { dbgCanvas.width = dw * 2; dbgCanvas.height = dh * 2; }
   const k = (dw * 2) / vw;
   dbg.save();
-  if (settings.mirror || settings.mode === "mirror") { dbg.translate(dw * 2, 0); dbg.scale(-1, 1); }
+  if (settings.mirror || settings.mode === "mirror" || settings.mode === "window") { dbg.translate(dw * 2, 0); dbg.scale(-1, 1); }
   dbg.drawImage(video, 0, 0, dw * 2, dh * 2);
   dbg.fillStyle = "#0ff";
   for (const lm of lastPoses) for (const p of lm) {
@@ -641,11 +806,17 @@ function bindSettings() {
   mode.addEventListener("change", () => setMode(mode.value));
   bindCheck("set-mirror", "mirror");
   bindCheck("set-mirrorfeed", "mirrorFeed");
+  bindCheck("set-windowflip", "windowFlip");
+  const ww = $("set-windowwatched");
+  ww.value = settings.windowWatched;
+  ww.addEventListener("change", () => { settings.windowWatched = ww.value; save(); });
   bindCheck("set-jumpscare", "jumpscare");
   bindCheck("set-sound", "sound", () => audio.setEnabled(settings.sound));
   bindCheck("set-posefallback", "poseFallback");
   bindCheck("set-debug", "debug", applyDebug);
   bindRange("set-creep", "creep", "v-creep", (v) => `${v}s`);
+  bindRange("set-windowcreep", "windowCreep", "v-windowcreep", (v) => `${v}s`);
+  bindRange("set-roombright", "roomBright", "v-roombright", (v) => `${Math.round(v * 100)}%`);
   bindRange("set-sens", "sens", "v-sens", (v) => v.toFixed(2));
   bindRange("set-facing", "facing", "v-facing", (v) => v.toFixed(2));
   bindRange("set-vol", "vol", "v-vol", (v) => `${Math.round(v * 100)}%`);
@@ -692,7 +863,7 @@ window.addEventListener("keydown", (e) => {
   else if (k === "d") { settings.debug = !settings.debug; $("set-debug").checked = settings.debug; save(); applyDebug(); }
   else if (k === "f") toggleFullscreen();
   else if (k === "r") resetGhost();
-  else if (k === "m") setMode({ turn: "stone", stone: "mirror", mirror: "turn" }[settings.mode] || "turn");
+  else if (k === "m") setMode({ turn: "stone", stone: "mirror", mirror: "window", window: "turn" }[settings.mode] || "turn");
 });
 
 // Double-tap anywhere on the stage opens settings (works on iPhone too).
