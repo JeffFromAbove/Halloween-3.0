@@ -4,7 +4,8 @@ import { Spooky } from "./audio.js";
 
 // ---------------------------------------------------------------- settings
 const DEFAULTS = {
-  mode: "turn",        // "turn" = ghost turns its back, "stone" = freezes into a statue
+  mode: "turn",        // "turn" = ghost turns its back, "stone" = freezes into a statue, "mirror" = haunted mirror
+  mirrorFeed: true,    // mirror mode: show the camera image (off for a screen behind two-way glass)
   mirror: true,
   jumpscare: true,
   sound: true,
@@ -29,6 +30,13 @@ const dbgCanvas = $("debugCanvas"), dbg = dbgCanvas.getContext("2d");
 const crop = document.createElement("canvas");
 crop.width = crop.height = 192;
 const cropCtx = crop.getContext("2d", { willReadFrequently: false });
+// Mirror mode: where people are (from the body tracker's segmentation), used to
+// hide the ghost behind them, and the layer the ghost is drawn on.
+const maskCanvas = document.createElement("canvas");
+const maskCtx = maskCanvas.getContext("2d");
+let maskImage = null, hasMask = false;
+const ghostCanvas = document.createElement("canvas");
+const gctx = ghostCanvas.getContext("2d");
 
 const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -55,12 +63,54 @@ async function loadModels(status) {
     });
   };
   try { await make("GPU"); } catch (e) { console.warn("GPU delegate failed, using CPU", e); await make("CPU"); }
+  await syncMasks();
   status("Loading face detector…");
   faces = await FaceDetector.createFromOptions(WASM, {
     baseOptions: { modelAssetPath: "models/blaze_face_short_range.tflite", delegate: "CPU" },
     runningMode: "IMAGE",
     minDetectionConfidence: 0.2,
   });
+}
+
+// Person segmentation costs time, so only ask for it in mirror mode.
+let masksOn = false, switchingMasks = false;
+async function syncMasks() {
+  const want = settings.mode === "mirror";
+  if (!pose || want === masksOn) return;
+  switchingMasks = true;
+  try {
+    await pose.setOptions({ outputSegmentationMasks: want });
+    masksOn = want;
+  } catch (e) {
+    console.warn("Could not toggle segmentation", e);
+  }
+  hasMask = false;
+  switchingMasks = false;
+}
+
+// Combine every person's mask into one alpha image at half resolution.
+function updateMask(masks) {
+  const m0 = masks[0], w = m0.width, h = m0.height;
+  const mw = Math.ceil(w / 2), mh = Math.ceil(h / 2);
+  if (maskCanvas.width !== mw || maskCanvas.height !== mh || !maskImage) {
+    maskCanvas.width = mw;
+    maskCanvas.height = mh;
+    maskImage = maskCtx.createImageData(mw, mh);
+  }
+  const out = maskImage.data;
+  out.fill(0);
+  for (const m of masks) {
+    const a = m.getAsFloat32Array();
+    for (let y = 0; y < mh; y++) {
+      for (let x = 0; x < mw; x++) {
+        const v = a[(y * 2) * w + x * 2] * 255;
+        const o = (y * mw + x) * 4 + 3;
+        if (v > out[o]) out[o] = v;
+      }
+    }
+  }
+  maskCtx.putImageData(maskImage, 0, 0);
+  hasMask = true;
 }
 
 // ---------------------------------------------------------------- camera
@@ -134,10 +184,17 @@ function detect(now) {
   const ts = Math.max(now, lastTs + 1);
   lastTs = ts;
 
-  const poses = pose.detectForVideo(video, ts).landmarks || [];
+  const res = pose.detectForVideo(video, ts);
+  const poses = res.landmarks || [];
+  if (res.segmentationMasks?.length) {
+    if (masksOn) updateMask(res.segmentationMasks);
+    res.segmentationMasks.forEach((m) => m.close());
+  } else if (masksOn) {
+    hasMask = false;
+  }
   const frameFaces = (faces.detect(video).detections || []).filter(goodFace).map(faceInfo);
 
-  const toScreenX = (x) => (settings.mirror ? 1 - x : x);
+  const toScreenX = (x) => (settings.mirror || settings.mode === "mirror" ? 1 - x : x);
   const used = new Set();
   const found = [];
 
@@ -206,6 +263,8 @@ const G = {
   phase: "hidden", // hidden | active | lunge | cooldown
   x: 0.5, dist: 0, alpha: 0, turn: 0, stone: 0, animT: 0,
   menace: 0, mouth: 0, look: 0, lungeT: 0, coolT: 0, flash: 0,
+  // mirror mode: where the ghost stands (screen px), which shoulder, how long you've looked
+  mx: 0, my: 0, msize: 0, side: 1, lookFor: 0, delay: 3,
 };
 let presentFor = 0, absentFor = 99, watched = 0, observed = false, targetX = 0.5;
 const fog = new Fog();
@@ -217,6 +276,7 @@ function resetGhost() {
 }
 
 function update(dt) {
+  if (settings.mode === "mirror") return updateMirror(dt);
   const present = people.length > 0;
   if (present) { presentFor += dt; absentFor = 0; } else { absentFor += dt; presentFor = 0; }
   const here = presentFor > 0.4 || (absentFor < 2.5 && G.phase !== "hidden");
@@ -302,6 +362,162 @@ function update(dt) {
   audio.update(G.phase === "hidden" || G.phase === "cooldown" ? 0 : G.alpha, G.phase === "lunge" || (G.phase === "active" && !observed), G.dist);
 }
 
+// ---------------------------------------------------------------- haunted mirror
+// The screen is a mirror. While you look into it, something appears over your
+// shoulder. Turn around to check and it's gone. Look back and it's closer.
+
+// Where the camera image lands on screen (scaled to cover, flipped like a mirror).
+function cover() {
+  const vw = video.videoWidth || 1280, vh = video.videoHeight || 720;
+  const k = Math.max(W / vw, H / vh);
+  return { k, vw, vh, ox: (W - vw * k) / 2, oy: (H - vh * k) / 2 };
+}
+const toMirror = (c, x, y) => [W - (c.ox + x * c.k), c.oy + y * c.k];
+
+function updateMirror(dt) {
+  const present = people.length > 0;
+  if (present) { presentFor += dt; absentFor = 0; } else { absentFor += dt; presentFor = 0; }
+
+  const anyLooking = people.some((p) => p.looking);
+  watched = anyLooking ? approach(watched, 1, 10, dt) : approach(watched, 0, 6, dt);
+  observed = observed ? watched > 0.35 : watched > 0.6;
+  G.turn = 0;
+  G.stone = 0;
+
+  // Gone for a while: forget them.
+  if (absentFor > 4 && G.phase !== "cooldown") { resetGhost(); G.lookFor = 0; }
+
+  if (present) {
+    const main = people.reduce((a, b) => (b.size > a.size ? b : a));
+    const c = cover();
+    const [hx, hy] = toMirror(c, main.head.x, main.head.y);
+    const s = main.head.s * c.k;
+    const d = ease(G.dist);
+    let tx = hx + G.side * s * lerp(1.05, 0.55, d);
+    let ty = hy - s * lerp(0.25, 0.05, d);
+    // Standing a little behind you, so its head is about the size of yours.
+    let size = Math.min(s * lerp(1.8, 2.4, d), H * 1.2);
+    ty = Math.max(ty, size * 0.2); // keep its face on screen
+    if (G.phase === "lunge") {
+      const k = ease(clamp(G.lungeT / 0.4));
+      tx = lerp(tx, hx, k);
+      ty = lerp(ty, hy, k);
+      size *= lerp(1, 1.8, k);
+    }
+    const snap = G.msize === 0;
+    G.mx = snap ? tx : approach(G.mx, tx, 8, dt);
+    G.my = snap ? ty : approach(G.my, ty, 8, dt);
+    G.msize = snap ? size : approach(G.msize, size, 6, dt);
+  }
+
+  if (G.phase === "hidden") {
+    G.alpha = approach(G.alpha, 0, 14, dt);
+    G.lookFor = observed && present ? G.lookFor + dt : 0;
+    if (G.lookFor > G.delay) {
+      G.phase = "active";
+      if (G.dist === 0) G.side = Math.random() < 0.5 ? -1 : 1;
+      audio.appear();
+    }
+  } else if (G.phase === "active") {
+    if (!observed || !present) {
+      // You turned around. Nothing there. It remembers how close it got.
+      G.phase = "hidden";
+      G.lookFor = 0;
+      G.delay = 1 + Math.random() * 2;
+    } else {
+      G.alpha = approach(G.alpha, 1, 1.5, dt);
+      G.dist = clamp(G.dist + dt / settings.creep);
+      G.menace = approach(G.menace, ease(G.dist), 2, dt);
+      G.mouth = approach(G.mouth, G.dist > 0.8 ? (G.dist - 0.8) * 2 : 0, 3, dt);
+      if (G.dist >= 1 && settings.jumpscare) {
+        G.phase = "lunge";
+        G.lungeT = 0;
+        audio.scream();
+      }
+    }
+  } else if (G.phase === "lunge") {
+    G.lungeT += dt;
+    G.alpha = 1;
+    G.mouth = approach(G.mouth, 1, 12, dt);
+    G.menace = 1;
+    if (G.lungeT > 1.0) {
+      G.phase = "cooldown";
+      G.coolT = 0;
+      G.flash = 1;
+      G.alpha = 0;
+    }
+  } else if (G.phase === "cooldown") {
+    G.coolT += dt;
+    if (G.coolT > 6) { resetGhost(); G.lookFor = 0; G.delay = 3 + Math.random() * 2; }
+  }
+
+  if (G.phase === "hidden" && G.alpha < 0.01 && G.dist === 0) G.msize = 0;
+  G.animT += dt * (G.phase === "lunge" ? 3 : 1);
+  G.look = approach(G.look, -G.side * 0.8, 4, dt);
+  G.flash = approach(G.flash, 0, 5, dt);
+
+  audio.update(G.phase === "active" || G.phase === "lunge" ? G.alpha : 0, true, G.dist);
+}
+
+function renderMirror() {
+  const c = cover();
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, W, H);
+
+  if (settings.mirrorFeed && video.readyState >= 2) {
+    ctx.save();
+    ctx.translate(W, 0);
+    ctx.scale(-1, 1);
+    ctx.drawImage(video, c.ox, c.oy, c.vw * c.k, c.vh * c.k);
+    ctx.restore();
+    // Old, dim glass: a cold tint and dark edges.
+    ctx.fillStyle = "rgba(10,18,30,0.28)";
+    ctx.fillRect(0, 0, W, H);
+    const v = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.3, W / 2, H / 2, Math.max(W, H) * 0.75);
+    v.addColorStop(0, "rgba(0,0,0,0)");
+    v.addColorStop(1, "rgba(0,0,0,0.85)");
+    ctx.fillStyle = v;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  if (G.alpha < 0.005 || G.msize === 0) return;
+
+  // Draw the ghost on its own layer, then cut out the people standing in front of it.
+  if (ghostCanvas.width !== stage.width || ghostCanvas.height !== stage.height) {
+    ghostCanvas.width = stage.width;
+    ghostCanvas.height = stage.height;
+  }
+  gctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  gctx.clearRect(0, 0, W, H);
+  const flicker = 0.85 + 0.15 * Math.random();
+  const lunging = G.phase === "lunge";
+  const shake = lunging ? (Math.random() - 0.5) * G.msize * 0.02 : 0;
+  drawGhost(gctx, {
+    x: G.mx + shake,
+    y: G.my + 0.31 * G.msize + 0.01 * G.msize * Math.sin(G.animT * 1.4) + shake,
+    size: G.msize,
+    t: G.animT,
+    turn: 0,
+    stone: 0,
+    alpha: (lunging ? 1 : settings.mirrorFeed ? 0.75 : 1) * G.alpha * flicker,
+    look: G.look,
+    menace: G.menace,
+    mouth: G.mouth,
+    sway: 0.4 + 0.4 * G.menace,
+    brightness: settings.bright,
+  });
+  if (hasMask && !lunging) {
+    gctx.globalCompositeOperation = "destination-out";
+    gctx.save();
+    gctx.translate(W, 0);
+    gctx.scale(-1, 1);
+    gctx.drawImage(maskCanvas, c.ox, c.oy, c.vw * c.k, c.vh * c.k);
+    gctx.restore();
+    gctx.globalCompositeOperation = "source-over";
+  }
+  ctx.drawImage(ghostCanvas, 0, 0, W, H);
+}
+
 // ---------------------------------------------------------------- render
 let W = 0, H = 0, DPR = 1;
 function resize() {
@@ -315,10 +531,14 @@ window.addEventListener("resize", resize);
 
 function render(dt) {
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-  ctx.fillStyle = "#000";
-  ctx.fillRect(0, 0, W, H);
+  if (settings.mode === "mirror") {
+    renderMirror();
+  } else {
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, W, H);
+  }
 
-  const visible = G.phase === "active" || G.phase === "lunge";
+  const visible = settings.mode !== "mirror" && (G.phase === "active" || G.phase === "lunge");
   fog.draw(ctx, W, H, dt, visible ? G.alpha * settings.bright : 0);
 
   if (visible && G.alpha > 0.005) {
@@ -362,7 +582,7 @@ function renderDebug(fps) {
   if (dbgCanvas.width !== dw * 2) { dbgCanvas.width = dw * 2; dbgCanvas.height = dh * 2; }
   const k = (dw * 2) / vw;
   dbg.save();
-  if (settings.mirror) { dbg.translate(dw * 2, 0); dbg.scale(-1, 1); }
+  if (settings.mirror || settings.mode === "mirror") { dbg.translate(dw * 2, 0); dbg.scale(-1, 1); }
   dbg.drawImage(video, 0, 0, dw * 2, dh * 2);
   dbg.fillStyle = "#0ff";
   for (const lm of lastPoses) for (const p of lm) {
@@ -378,7 +598,7 @@ function renderDebug(fps) {
   $("debugText").textContent =
     `people   ${people.length}  (${people.map((p) => (p.looking ? "LOOK" : "away")).join(" ") || "-"})\n` +
     `watched  ${watched.toFixed(2)}  ${observed ? "OBSERVED" : "unseen"}\n` +
-    `ghost    ${G.phase}  dist ${G.dist.toFixed(2)}  x ${G.x.toFixed(2)}\n` +
+    `ghost    ${G.phase}  dist ${G.dist.toFixed(2)}  x ${G.x.toFixed(2)}${settings.mode === "mirror" ? `  mask ${hasMask ? "yes" : "no"}` : ""}\n` +
     `fps      ${fps.toFixed(0)}  detect ${detectMs.toFixed(0)}ms  cam ${vw}x${vh}`;
 }
 
@@ -388,7 +608,7 @@ function frame(now) {
   const dt = Math.min(0.1, (now - last) / 1000);
   last = now;
   fpsAvg = lerp(fpsAvg, 1 / Math.max(dt, 1e-3), 0.05);
-  if (pose && video.readyState >= 2 && now - lastDetect > 50) {
+  if (pose && !switchingMasks && video.readyState >= 2 && now - lastDetect > 50) {
     lastDetect = now;
     try { detect(now); } catch (e) { console.error(e); }
   }
@@ -418,8 +638,9 @@ function bindSettings() {
   };
   const mode = $("set-mode");
   mode.value = settings.mode;
-  mode.addEventListener("change", () => { settings.mode = mode.value; save(); });
+  mode.addEventListener("change", () => setMode(mode.value));
   bindCheck("set-mirror", "mirror");
+  bindCheck("set-mirrorfeed", "mirrorFeed");
   bindCheck("set-jumpscare", "jumpscare");
   bindCheck("set-sound", "sound", () => audio.setEnabled(settings.sound));
   bindCheck("set-posefallback", "poseFallback");
@@ -437,6 +658,16 @@ function bindSettings() {
   $("closePanel").addEventListener("click", () => togglePanel(false));
   $("fsBtn").addEventListener("click", toggleFullscreen);
   $("resetBtn").addEventListener("click", resetGhost);
+}
+
+function setMode(m) {
+  settings.mode = m;
+  $("set-mode").value = m;
+  save();
+  resetGhost();
+  G.lookFor = 0;
+  G.msize = 0;
+  syncMasks();
 }
 
 function applyDebug() { $("debug").classList.toggle("hidden", !settings.debug); }
@@ -461,7 +692,7 @@ window.addEventListener("keydown", (e) => {
   else if (k === "d") { settings.debug = !settings.debug; $("set-debug").checked = settings.debug; save(); applyDebug(); }
   else if (k === "f") toggleFullscreen();
   else if (k === "r") resetGhost();
-  else if (k === "m") { settings.mode = settings.mode === "turn" ? "stone" : "turn"; $("set-mode").value = settings.mode; save(); }
+  else if (k === "m") setMode({ turn: "stone", stone: "mirror", mirror: "turn" }[settings.mode] || "turn");
 });
 
 // Double-tap anywhere on the stage opens settings (works on iPhone too).

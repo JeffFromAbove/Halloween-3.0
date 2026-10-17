@@ -19,10 +19,11 @@
     <div class="card">
       <h1>The Watcher</h1>
       <p>A spectre that only appears when someone is in view. It creeps toward
-        them while they look away &mdash; and stops the moment they look back.</p>
+        them while they look away &mdash; and stops the moment they look back.
+        Or, in the haunted mirror, it waits just behind your shoulder.</p>
       <button id="startBtn">Begin</button>
       <p id="introMsg" class="msg"></p>
-      <p class="hint">Double-tap (or press <kbd>S</kbd>) for settings &middot; <kbd>D</kbd> for debug view &middot; <kbd>F</kbd> fullscreen</p>
+      <p class="hint">Double-tap (or press <kbd>S</kbd>) for settings &middot; <kbd>M</kbd> switches character &middot; <kbd>D</kbd> for debug view &middot; <kbd>F</kbd> fullscreen</p>
     </div>
   </div>
 
@@ -37,6 +38,7 @@
       <select id="set-mode">
         <option value="turn">Ghost &mdash; turns its back when watched</option>
         <option value="stone">Statue &mdash; freezes to stone when watched</option>
+        <option value="mirror">Haunted mirror &mdash; something behind you, only while you look</option>
       </select>
     </label>
 
@@ -45,6 +47,7 @@
     </label>
 
     <label class="row"><input type="checkbox" id="set-mirror"> Mirror (ghost on the same side as the person)</label>
+    <label class="row"><input type="checkbox" id="set-mirrorfeed"> Haunted mirror: show the camera image (turn off for a screen behind two-way mirror glass)</label>
     <label class="row"><input type="checkbox" id="set-jumpscare"> Jump scare when it reaches you</label>
     <label class="row"><input type="checkbox" id="set-sound"> Sound</label>
     <label class="row"><input type="checkbox" id="set-posefallback"> Also use body pose to guess "looking" (helps far away)</label>

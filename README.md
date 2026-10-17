@@ -1,6 +1,6 @@
 # The Watcher
 
-A Halloween projection. The screen stays black until a camera sees someone. Then
+A Halloween projection (plus a haunted mirror). The screen stays black until a camera sees someone. Then
 a hooded spectre fades in and drifts toward them. It only moves while nobody is
 looking at it. When someone looks, it turns its back (ghost mode) or freezes
 into a stone statue (statue mode). If it gets all the way to you unseen, you get
@@ -9,6 +9,33 @@ a jump scare.
 It's a single web page with no build step. Body and face tracking run on the
 device using Google's MediaPipe. That library and its models are included in
 this repo, so the page works without internet once it's loaded.
+
+## Haunted mirror mode
+
+Pick **Haunted mirror** under *Character* (or press `M` until it comes up). The
+screen becomes a mirror showing the live camera image, slightly dimmed and cold.
+
+- Look into the mirror for a few seconds and a ghost fades in just behind one of
+  your shoulders. You stand in front of it, so it's hidden behind your body and
+  really seems to be in the room behind you.
+- Turn around to check and it's gone instantly. Look back and after a moment
+  it's there again, and closer than before. Its eyes go red and its hands reach
+  for you.
+- If you keep looking long enough (the **Creep time** setting), it lunges with a
+  scream (if **Jump scare** is on).
+
+Two ways to set it up:
+
+- **Screen as the mirror (easiest):** a TV, monitor, or iPad in an old picture
+  frame, with the webcam hidden in the top edge of the frame. Leave **show the
+  camera image** on. For iPhone testing, just hold the phone like a mirror.
+- **Real two-way mirror:** put a monitor directly behind two-way mirror glass
+  (or mirror film on glass) and turn **show the camera image** off. The screen
+  stays black, so you see your real reflection, and only the ghost shines
+  through. Keep the room in front dim and the camera close to the middle of the
+  mirror's top edge. The ghost's position is worked out from the camera's view,
+  so it lines up best for someone standing about 1–2 m back. Expect it to be
+  slightly off.
 
 ## How it decides you're "looking"
 
@@ -64,7 +91,7 @@ Settings are saved in the browser.
 | `S` or double-tap | Settings panel |
 | `D` | Debug view (camera feed + tracking) |
 | `F` | Fullscreen |
-| `M` | Switch between ghost and statue |
+| `M` | Cycle ghost → statue → haunted mirror |
 | `R` | Reset the ghost |
 
 ### Projection tips
