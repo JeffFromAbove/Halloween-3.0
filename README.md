@@ -29,6 +29,20 @@ Every character works in every mode.
 The newer characters are drawn soft-focus with a little film grain, so they
 look less like drawings, especially projected on a sheet or behind a window.
 
+## Eyes in the dark
+
+Pick **Black screen — eyes in the dark** under *Mode*. Like a Scooby-Doo haunted
+house: while nobody is looking at the screen, pairs of glowing cartoon eyes blink
+open in the darkness one after another. They come in different sizes, a few are
+red, and they all watch the person. The moment someone looks, every pair snaps
+shut and the screen is black again. Look away and they open back up, and then
+more keep coming.
+
+- **Creep time** sets how long it takes to fill up (30 pairs).
+- With **Jump scare** on, once all 30 are open, they shut and one huge pair of
+  red eyes opens in the middle with a scream.
+- Everything resets when nobody has been in view for a few seconds.
+
 ## Haunted mirror mode
 
 Pick **Haunted mirror** under *Mode* (or press `M` until it comes up). The
@@ -187,7 +201,7 @@ Settings are saved in the browser.
 | `D` | Debug view (camera feed + tracking) |
 | `F` | Fullscreen |
 | `C` | Next character |
-| `M` | Next mode: black screen (turns away) → black screen (statue) → haunted mirror → haunted window |
+| `M` | Next mode: black screen (turns away) → black screen (statue) → eyes in the dark → haunted mirror → haunted window |
 | `R` | Reset the ghost |
 
 ### Projection tips
@@ -208,6 +222,7 @@ Settings are saved in the browser.
 - `ghost.js`: drawing the spectre and fog
 - `characters.js`: the shadow figure, pale lady and long-haired girl
 - `room.js`: the candle-lit room for the haunted window
+- `eyes.js`: eyes in the dark
 - `audio.js`: synthesized sounds
 - `vendor/mediapipe/`: MediaPipe Tasks Vision 1.1.1 (Apache-2.0)
 - `models/`: pose landmarker (lite) and BlazeFace short-range models

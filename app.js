@@ -3,6 +3,7 @@ import { Fog } from "./ghost.js";
 import { drawCharacter, CHARACTERS } from "./characters.js";
 import { Spooky } from "./audio.js";
 import { Room, DEFAULT_ENTRY, floorY } from "./room.js";
+import { Eyes } from "./eyes.js";
 
 // ---------------------------------------------------------------- settings
 const DEFAULTS = {
@@ -285,23 +286,28 @@ function resetGhost() {
   G.alpha = 0; G.dist = 0; G.menace = 0; G.mouth = 0;
 }
 
-function update(dt) {
-  if (settings.mode === "mirror") return updateMirror(dt);
-  if (settings.mode === "window") return updateWindow(dt);
+// Who's here, whether anyone is looking, and where the main person is.
+// Being watched snaps on quickly and lets go slowly (so a blink doesn't free it).
+function trackWatching(dt) {
   const present = people.length > 0;
   if (present) { presentFor += dt; absentFor = 0; } else { absentFor += dt; presentFor = 0; }
-  const here = presentFor > 0.4 || (absentFor < 2.5 && G.phase !== "hidden");
-
-  // Being watched: snaps on quickly, lets go slowly (so a blink doesn't free it).
   const anyLooking = people.some((p) => p.looking);
   watched = anyLooking ? approach(watched, 1, 14, dt) : approach(watched, 0, 3, dt);
   const wasObserved = observed;
   observed = observed ? watched > 0.35 : watched > 0.6;
-
   if (present) {
     const main = people.reduce((a, b) => (b.size > a.size ? b : a));
     targetX = approach(targetX, main.x, 6, dt);
   }
+  return { present, wasObserved };
+}
+
+function update(dt) {
+  if (settings.mode === "mirror") return updateMirror(dt);
+  if (settings.mode === "window") return updateWindow(dt);
+  if (settings.mode === "eyes") return updateEyes(dt);
+  const { present, wasObserved } = trackWatching(dt);
+  const here = presentFor > 0.4 || (absentFor < 2.5 && G.phase !== "hidden");
 
   const stoneMode = settings.mode === "stone";
 
@@ -640,21 +646,10 @@ function pickEntry(e) {
 }
 
 function updateWindow(dt) {
-  const present = people.length > 0;
-  if (present) { presentFor += dt; absentFor = 0; } else { absentFor += dt; presentFor = 0; }
+  const { wasObserved } = trackWatching(dt);
   const here = presentFor > 0.4 || (absentFor < 2.5 && G.phase !== "hidden");
-
-  const anyLooking = people.some((p) => p.looking);
-  watched = anyLooking ? approach(watched, 1, 14, dt) : approach(watched, 0, 3, dt);
-  const wasObserved = observed;
-  observed = observed ? watched > 0.35 : watched > 0.6;
   G.unseenFor = observed ? 0 : G.unseenFor + dt;
   G.stone = 0;
-
-  if (present) {
-    const main = people.reduce((a, b) => (b.size > a.size ? b : a));
-    targetX = approach(targetX, main.x, 6, dt);
-  }
 
   const how = settings.windowWatched;
   if (G.phase === "hidden") {
@@ -797,6 +792,26 @@ function renderWindow() {
   }
 }
 
+// ---------------------------------------------------------------- eyes in the dark
+const eyes = new Eyes();
+
+function updateEyes(dt) {
+  trackWatching(dt);
+  const event = eyes.update(dt, {
+    present: presentFor > 0.4 || (absentFor < 1.5 && eyes.count > 0), // ride out tracking dropouts
+    observed,
+    targetX,
+    creep: settings.creep,
+    jumpscare: settings.jumpscare,
+  });
+  if (event === "scream") {
+    audio.scream();
+    G.flash = 1;
+  }
+  G.flash = approach(G.flash, 0, 5, dt);
+  audio.update(eyes.big ? 1 : eyes.level, !observed, eyes.level);
+}
+
 // ---------------------------------------------------------------- render
 let W = 0, H = 0, DPR = 1;
 function resize() {
@@ -814,6 +829,15 @@ function render(dt) {
     renderMirror();
   } else if (settings.mode === "window") {
     return renderWindow();
+  } else if (settings.mode === "eyes") {
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, W, H);
+    eyes.draw(ctx, W, H, settings.bright);
+    if (G.flash > 0.01) {
+      ctx.fillStyle = `rgba(255,255,255,${G.flash * 0.8})`;
+      ctx.fillRect(0, 0, W, H);
+    }
+    return;
   } else {
     ctx.fillStyle = "#000";
     ctx.fillRect(0, 0, W, H);
@@ -880,6 +904,7 @@ function renderDebug(fps) {
   $("debugText").textContent =
     `people   ${people.length}  (${people.map((p) => (p.looking ? "LOOK" : "away")).join(" ") || "-"})\n` +
     `watched  ${watched.toFixed(2)}  ${observed ? "OBSERVED" : "unseen"}\n` +
+    (settings.mode === "eyes" ? `eyes     ${eyes.count} pairs  ${eyes.big ? "JUMP SCARE" : ""}\n` : "") +
     `ghost    ${G.phase}  dist ${G.dist.toFixed(2)}  x ${G.x.toFixed(2)}${settings.mode === "mirror" ? `  mask ${hasMask ? "yes" : "no"}` : ""}\n` +
     `fps      ${fps.toFixed(0)}  detect ${detectMs.toFixed(0)}ms  cam ${vw}x${vh}`;
 }
@@ -989,6 +1014,7 @@ function setMode(m) {
   resetGhost();
   G.lookFor = 0;
   G.msize = 0;
+  eyes.reset();
   syncMasks();
 }
 
@@ -1019,7 +1045,7 @@ window.addEventListener("keydown", (e) => {
     $("set-character").value = settings.character;
     save();
     toast(`Character: ${$("set-character").selectedOptions[0].textContent}`, 2000);
-  } else if (k === "m") setMode({ turn: "stone", stone: "mirror", mirror: "window", window: "turn" }[settings.mode] || "turn");
+  } else if (k === "m") setMode({ turn: "stone", stone: "eyes", eyes: "mirror", mirror: "window", window: "turn" }[settings.mode] || "turn");
 });
 
 // Double-tap anywhere on the stage opens settings (works on iPhone too).
@@ -1049,7 +1075,7 @@ document.addEventListener("visibilitychange", () => {
 });
 
 // ---------------------------------------------------------------- start
-window.watcher = { G, settings, get people() { return people; } }; // for poking at from the console
+window.watcher = { G, settings, eyes, get people() { return people; } }; // for poking at from the console
 bindSettings();
 applyDebug();
 resize();
