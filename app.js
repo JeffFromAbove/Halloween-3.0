@@ -8,7 +8,7 @@ import { Eyes } from "./eyes.js";
 // ---------------------------------------------------------------- settings
 const DEFAULTS = {
   character: "spectre", // "spectre" | "shadow" | "lady" | "girl"
-  mode: "turn",        // "turn" = ghost turns its back, "stone" = freezes into a statue, "mirror" = haunted mirror
+  mode: "eyes",        // "eyes" = eyes in the dark, "turn" = turns its back, "stone" = statue, "mirror", "window"
   mirrorFeed: true,    // mirror mode: show the camera image (off for a screen behind two-way glass)
   windowWatched: "vanish", // window mode, when someone looks: "vanish" | "freeze" | "turn"
   windowFlip: true,    // window mode: flip the picture for rear projection (viewers outside)
